@@ -1,6 +1,6 @@
 #!/bin/sh
 path_to_etc=$1
-dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+openssl_conf_path=$2
 
 echo "Setting up credential directory structure..."
 mkdir -p $path_to_etc/creds/root/certs
@@ -20,7 +20,7 @@ openssl genrsa -passout pass:1111 -des3 -out ca-intermediate.key.pem 4096
 
 openssl req -passin pass:1111 -new -key ca-intermediate.key.pem -out ca-intermediate.csr -subj  "/C=FR/ST=Paris/L=Paris/O=Test/OU=Test/CN=intermediate"
 
-openssl x509 -req -passin pass:1111 -days 365 -extensions v3_intermediate_ca -extfile $dir/openssl.conf -in ca-intermediate.csr -CA ca.cert.pem -CAkey ca.key.pem -set_serial 01 -out ca-intermediate.cert.pem
+openssl x509 -req -passin pass:1111 -days 365 -extensions v3_intermediate_ca -extfile $openssl_conf_path -in ca-intermediate.csr -CA ca.cert.pem -CAkey ca.key.pem -set_serial 01 -out ca-intermediate.cert.pem
 
 openssl rsa -passin pass:1111 -in ca-intermediate.key.pem -out ca-intermediate.key.pem
 
