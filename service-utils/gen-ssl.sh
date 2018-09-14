@@ -1,6 +1,6 @@
 #!/bin/sh
-path_to_etc=$1
-openssl_conf_path=$2
+path_to_etc=/etc
+openssl_conf_path=/etc/ssl/ct-openssl.conf
 
 echo "Setting up credential directory structure..."
 mkdir -p $path_to_etc/creds/root/certs
@@ -30,7 +30,7 @@ cp ca.cert.pem  $path_to_etc/creds/root/certs/ca.cert.pem
 cp ca-intermediate.cert.pem  $path_to_etc/creds/root/certs/ca-intermediate.cert.pem
 
 echo "Generating service certs..."
-for server_name in "${@:2}"
+for server_name in "${@:1}"
 do
     openssl genrsa -passout pass:1111 -des3 -out $server_name.key.pem 4096
 
