@@ -8,7 +8,6 @@ mkdir -p $path_to_etc/creds/services/certs
 
 for server_name in "${@:1}"
 do
-  echo $server_name
     echo "Generating ECDSA private key..."
     openssl ecparam -name secp256k1 -genkey -noout -out $server_name-signing-key.pem
     cp $server_name-signing-key.pem $path_to_etc/creds/services/keys
