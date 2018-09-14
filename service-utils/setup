@@ -1,0 +1,10 @@
+#/bin/sh -e
+
+gen_ecdsa_path=/usr/local/bin/ct-gen-ecdsa.sh
+gen_ssl_path=/usr/local/bin/ct-gen-ssl.sh
+
+curl https://raw.githubusercontent.com/clicktherapeutics/ct-public-utils/v0.1-beta/service-utils/gen-ecdsa.sh > $gen_ecdsa_path
+curl curl https://raw.githubusercontent.com/clicktherapeutics/ct-public-utils/v0.1-beta/service-utils/gen-ssl.sh > $gen_ssl_path
+
+chmod 744 $gen_ecdsa_path
+chmod 744 $gen_ssl_path
