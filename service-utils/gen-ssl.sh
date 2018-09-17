@@ -1,4 +1,3 @@
-#!/bin/sh
 path_to_etc=/etc
 openssl_conf_path=/etc/ssl/ct-openssl.conf
 
