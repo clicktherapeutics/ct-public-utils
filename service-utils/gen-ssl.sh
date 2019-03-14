@@ -1,5 +1,14 @@
-path_to_etc=/etc
-openssl_conf_path=/etc/ssl/ct-openssl.conf
+# First argument sets the location of /etc directory.
+path_to_etc=${1:?"Path to /etc must be the first parameter."}
+
+shift  # Cut off $1 so that the rest of $@ is a list of names.
+if [ -z "$*" ]; then
+    echo "No service names passed!"
+    exit 1
+fi
+
+# Allow environment to override openssl config path.
+openssl_conf_path=${CT_OPENSSL_CONF_PATH:-/etc/ssl/ct-openssl.conf}
 
 echo "Setting up credential directory structure..."
 mkdir -p $path_to_etc/creds/root/certs
@@ -7,7 +16,7 @@ mkdir -p $path_to_etc/creds/root/keys
 mkdir -p $path_to_etc/creds/services/certs
 mkdir -p $path_to_etc/creds/services/keys
 
-mkdir tmp && cd tmp
+mkdir -p tmp && cd tmp
 
 echo "Generating root certs..."
 openssl genrsa -passout pass:1111 -des3 -out ca.key.pem 4096
@@ -29,7 +38,7 @@ cp ca.cert.pem  $path_to_etc/creds/root/certs/ca.cert.pem
 cp ca-intermediate.cert.pem  $path_to_etc/creds/root/certs/ca-intermediate.cert.pem
 
 echo "Generating service certs..."
-for server_name in "${@:1}"
+for server_name in "$@"
 do
     openssl genrsa -passout pass:1111 -des3 -out $server_name.key.pem 4096
 
