@@ -2,7 +2,7 @@
 set -e
 
 # First argument sets the location of /etc directory.
-path_to_etc=${1:?"Path to /etc must be the first parameter."}
+path_to_etc=${1:?"An absolute path to /etc must be the first parameter."}
 
 shift  # Cut off $1 so that the rest of $@ is a list of names.
 if [ -z "$*" ]; then
@@ -13,51 +13,157 @@ fi
 # Allow environment to override openssl config path.
 openssl_conf_path=${CT_OPENSSL_CONF_PATH:-/etc/ssl/ct-openssl.conf}
 
-echo "Setting up credential directory structure..."
-mkdir -p $path_to_etc/creds/root/certs
-mkdir -p $path_to_etc/creds/root/keys
-mkdir -p $path_to_etc/creds/services/certs
-mkdir -p $path_to_etc/creds/services/keys
+ROOT_CERTS=${path_to_etc}/creds/root/certs
+ROOT_KEYS=${path_to_etc}/creds/root/keys
+SVC_CERTS=${path_to_etc}/creds/services/certs
+SVC_KEYS=${path_to_etc}/creds/services/keys
 
-TMP="tmp-gen-ssl-$$"
+TMP="tmp-gen-ssl-$$"  # Temporary work dir name.
 
-mkdir ${TMP} && cd ${TMP}
+enter_tmp_dir() {
+    mkdir ${TMP} && cd ${TMP}
+}
 
-echo "Generating root certs..."
-openssl genrsa -passout pass:1111 -des3 -out ca.key.pem 4096
+leave_tmp_dir() {
+    echo "Cleaning up ${TMP}..."
+    cd ..
+    rm -rf ${TMP}
+}
 
-openssl req -passin pass:1111 -new -x509 -days 7300 -key ca.key.pem -out ca.cert.pem -subj  "/C=FR/ST=Paris/L=Paris/O=Test/OU=Test/CN=root"
+echo "Making sure credential directory structure is present..."
+mkdir -p ${ROOT_CERTS}
+mkdir -p ${ROOT_KEYS}
+mkdir -p ${SVC_CERTS}
+mkdir -p ${SVC_KEYS}
 
-echo "Generating intermediate certs..."
-openssl genrsa -passout pass:1111 -des3 -out ca-intermediate.key.pem 4096
+##
+# CA generation.
 
-openssl req -passin pass:1111 -new -key ca-intermediate.key.pem -out ca-intermediate.csr -subj  "/C=FR/ST=Paris/L=Paris/O=Test/OU=Test/CN=intermediate"
+# Check if we even have any work to do. (We don't want `make` run in every container.)
+# See `cp` statements below for the logic of the names.
+ALL_FOUND="yes"
+(
+    [ -f ${ROOT_KEYS}/ca-intermediate.key.pem ] &&
+    [ -f ${ROOT_KEYS}/ca.key.pem ] &&
+    [ -f ${ROOT_CERTS}/ca.cert.pem ] &&
+    [ -f ${ROOT_CERTS}/ca-intermediate.cert.pem ]
+) || ALL_FOUND="no"
 
-openssl x509 -req -passin pass:1111 -days 365 -extensions v3_intermediate_ca -extfile $openssl_conf_path -in ca-intermediate.csr -CA ca.cert.pem -CAkey ca.key.pem -set_serial 01 -out ca-intermediate.cert.pem
+if [ ${ALL_FOUND} = "yes" ]; then
+    echo "Root keys and certificates are already generated."
+else
+    # NOTE: Since we're re-generating the CA, any certs and keys lying around are no more valid.
+    # Remove them.
+    echo "Generating root certs."
+    
+    echo "Removing any pre-existing keys and certs."
+    rm -rf ${SVC_CERTS}/*
+    rm -rf ${SVC_KEYS}/*
 
-openssl rsa -passin pass:1111 -in ca-intermediate.key.pem -out ca-intermediate.key.pem
+    enter_tmp_dir
 
-cp ca-intermediate.key.pem $path_to_etc/creds/root/keys/ca-intermediate.key.pem
-cp ca.key.pem $path_to_etc/creds/root/keys/ca.key.pem
-cp ca.cert.pem  $path_to_etc/creds/root/certs/ca.cert.pem
-cp ca-intermediate.cert.pem  $path_to_etc/creds/root/certs/ca-intermediate.cert.pem
+    openssl genrsa -passout pass:1111 -des3 -out ca.key.pem 4096
 
-for server_name in "$@"
-do
-    echo "Generating service certs for ${server_name}..."
-    openssl genrsa -passout pass:1111 -des3 -out $server_name.key.pem 4096
+    openssl req -passin pass:1111 -new -x509 -days 7300 -key ca.key.pem -out ca.cert.pem \
+            -subj "/C=FR/ST=Paris/L=Paris/O=Test/OU=Test/CN=root"
 
-    openssl req -passin pass:1111 -new -key $server_name.key.pem -out $server_name.csr -subj  "/C=FR/ST=Paris/L=Paris/O=Test/OU=Test/CN=${server_name}.local.clicktherapeutics.com"
+    echo "Generating intermediate certs..."
+    openssl genrsa -passout pass:1111 -des3 -out ca-intermediate.key.pem 4096
 
-    openssl x509 -req -passin pass:1111 -days 365 -in $server_name.csr -CA ca-intermediate.cert.pem -CAkey ca-intermediate.key.pem -set_serial 01 -out $server_name.cert.pem
+    openssl req -passin pass:1111 -new -key ca-intermediate.key.pem -out ca-intermediate.csr \
+            -subj "/C=FR/ST=Paris/L=Paris/O=Test/OU=Test/CN=intermediate"
 
-    openssl rsa -passin pass:1111 -in $server_name.key.pem -out $server_name.key.pem
+    openssl x509 -req -passin pass:1111 -days 365 -extensions v3_intermediate_ca -extfile ${openssl_conf_path} \
+            -in ca-intermediate.csr -CA ca.cert.pem -CAkey ca.key.pem -set_serial 01 -out ca-intermediate.cert.pem
 
-    echo "copying files to /etc/creds dir"
-    cat $server_name.cert.pem ca-intermediate.cert.pem ca.cert.pem > $path_to_etc/creds/services/certs/$server_name-chain.cert.pem
-    cp $server_name.key.pem $path_to_etc/creds/services/keys
+    openssl rsa -passin pass:1111 -in ca-intermediate.key.pem -out ca-intermediate.key.pem
+
+    cp ca-intermediate.key.pem ${ROOT_KEYS}/ca-intermediate.key.pem
+    cp ca.key.pem ${ROOT_KEYS}/ca.key.pem
+    cp ca.cert.pem  ${ROOT_CERTS}/ca.cert.pem
+    cp ca-intermediate.cert.pem  ${ROOT_CERTS}/ca-intermediate.cert.pem
+
+    leave_tmp_dir
+fi
+
+##
+# Server keys generation.
+
+# NOTE: if CA generation above was run, all keys were removed.
+# If it was not, we may need to generate just some extra service keys using the existing root cert.
+for server_name in "$@"; do
+    if [ -f ${SVC_KEYS}/${server_name}.key.pem ] && [ ${SVC_CERTS}/${server_name}-chain.cert.pem ]; then
+        echo "Certs and keys are already present for ${server_name}."
+    else
+        enter_tmp_dir
+
+        echo "Generating service certs for ${server_name}."
+        openssl genrsa -passout pass:1111 -des3 -out ${server_name}.key.pem 4096
+
+        openssl req -passin pass:1111 -new -key ${server_name}.key.pem -out ${server_name}.csr \
+                -subj  "/C=FR/ST=Paris/L=Paris/O=Test/OU=Test/CN=${server_name}.local.clicktherapeutics.com"
+
+        openssl x509 -req -passin pass:1111 -days 365 -in ${server_name}.csr \
+                -CA ${ROOT_CERTS}/ca-intermediate.cert.pem -CAkey ${ROOT_KEYS}/ca-intermediate.key.pem \
+                -set_serial 01 -out ${server_name}.cert.pem
+
+        openssl rsa -passin pass:1111 -in ${server_name}.key.pem -out ${server_name}.key.pem
+
+        echo "copying files to /etc/creds dir"
+        cat ${server_name}.cert.pem ${ROOT_CERTS}/ca-intermediate.cert.pem ${ROOT_CERTS}/ca.cert.pem > ${SVC_CERTS}/${server_name}-chain.cert.pem
+        cp ${server_name}.key.pem ${SVC_KEYS}
+
+        leave_tmp_dir
+    fi
 done
 
-echo "Cleaning up ${TMP}..."
-cd ..
-rm -rf ${TMP}
+
+
+
+
+# OLD:
+
+# TMP="tmp-gen-ssl-$$"
+
+# mkdir ${TMP} && cd ${TMP}
+
+# echo "Generating root certs..."
+# openssl genrsa -passout pass:1111 -des3 -out ca.key.pem 4096
+
+# openssl req -passin pass:1111 -new -x509 -days 7300 -key ca.key.pem -out ca.cert.pem -subj  "/C=FR/ST=Paris/L=Paris/O=Test/OU=Test/CN=root"
+
+# echo "Generating intermediate certs..."
+# openssl genrsa -passout pass:1111 -des3 -out ca-intermediate.key.pem 4096
+
+# openssl req -passin pass:1111 -new -key ca-intermediate.key.pem -out ca-intermediate.csr -subj  "/C=FR/ST=Paris/L=Paris/O=Test/OU=Test/CN=intermediate"
+
+# openssl x509 -req -passin pass:1111 -days 365 -extensions v3_intermediate_ca -extfile ${openssl_conf_path} -in ca-intermediate.csr -CA ca.cert.pem -CAkey ca.key.pem -set_serial 01 -out ca-intermediate.cert.pem
+
+# openssl rsa -passin pass:1111 -in ca-intermediate.key.pem -out ca-intermediate.key.pem
+
+# cp ca-intermediate.key.pem ${ROOT_KEYS}/ca-intermediate.key.pem
+# cp ca.key.pem ${ROOT_KEYS}/ca.key.pem
+# cp ca.cert.pem  ${ROOT_CERTS}/ca.cert.pem
+# cp ca-intermediate.cert.pem  ${ROOT_CERTS}/ca-intermediate.cert.pem
+
+# for server_name in "$@"
+# do
+#     echo "Generating service certs for ${server_name}..."
+#     openssl genrsa -passout pass:1111 -des3 -out ${server_name}.key.pem 4096
+
+#     openssl req -passin pass:1111 -new -key ${server_name}.key.pem -out ${server_name}.csr \
+#             -subj  "/C=FR/ST=Paris/L=Paris/O=Test/OU=Test/CN=${server_name}.local.clicktherapeutics.com"
+
+#     openssl x509 -req -passin pass:1111 -days 365 -in ${server_name}.csr -CA ca-intermediate.cert.pem -CAkey ca-intermediate.key.pem \
+#             -set_serial 01 -out ${server_name}.cert.pem
+
+#     openssl rsa -passin pass:1111 -in ${server_name}.key.pem -out ${server_name}.key.pem
+
+#     echo "copying files to /etc/creds dir"
+#     cat ${server_name}.cert.pem ca-intermediate.cert.pem ca.cert.pem > ${SVC_CERTS}/${server_name}-chain.cert.pem
+#     cp ${server_name}.key.pem ${SVC_KEYS}
+# done
+
+# echo "Cleaning up ${TMP}..."
+# cd ..
+# rm -rf ${TMP}
