@@ -1,12 +1,31 @@
 #/bin/sh -e
-version_tag=$1
+# Note: the ${var:...} stuff works both in bash and in Alpine's ash.
 
-gen_ecdsa_path=/usr/local/bin/ct-gen-ecdsa.sh
-gen_ssl_path=/usr/local/bin/ct-gen-ssl.sh
+version_tag=${1:?"Version tag must be passed as \$1."}
 
-curl https://raw.githubusercontent.com/clicktherapeutics/ct-public-utils/$version_tag/service-utils/gen-ecdsa.sh > $gen_ecdsa_path
-curl https://raw.githubusercontent.com/clicktherapeutics/ct-public-utils/$version_tag/service-utils/gen-ssl.sh > $gen_ssl_path
-curl https://raw.githubusercontent.com/clicktherapeutics/ct-public-utils/$version_tag/service-utils/ct-openssl.conf > /etc/ssl/ct-openssl.conf
+# Install scripts to target dir in $2, if given.
+TARGET_DIR=${2:-/usr/local/bin}
+
+# Install SSL conf to $3, if given.
+SSL_CONF_DIR=${3:-/etc/ssl}
+
+if [ ! -d "${TARGET_DIR}" ]; then
+    echo "Cannot find target directory '${TARGET_DIR}'."
+    exit 1
+fi
+
+if [ ! -d "${SSL_CONF_DIR}" ]; then
+    echo "Cannot find SSL configuration directory '${SSL_CONF_DIR}'."
+    exit 1
+fi
+
+SOURCE_URI="https://raw.githubusercontent.com/clicktherapeutics/ct-public-utils/${version_tag}/service-utils"
+gen_ecdsa_path=${TARGET_DIR}/ct-gen-ecdsa.sh
+gen_ssl_path=${TARGET_DIR}/ct-gen-ssl.sh
+
+curl ${SOURCE_URI}/gen-ecdsa.sh > $gen_ecdsa_path
+curl ${SOURCE_URI}/gen-ssl.sh > $gen_ssl_path
+curl ${SOURCE_URI}/ct-openssl.conf > ${SSL_CONF_DIR}/ct-openssl.conf
 
 chmod 744 $gen_ecdsa_path
 chmod 744 $gen_ssl_path
